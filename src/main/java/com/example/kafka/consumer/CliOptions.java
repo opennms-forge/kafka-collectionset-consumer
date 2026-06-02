@@ -34,6 +34,15 @@ public class CliOptions {
                         .build()
         );
 
+        options.addOption(
+                Option.builder()
+                        .longOpt("format")
+                        .hasArg()
+                        .argName("fmt")
+                        .desc("Message format: protobuf, json, or raw (default: protobuf)")
+                        .build()
+        );
+
 
         options.addOption(null, "help", false,
                 "Print this help");

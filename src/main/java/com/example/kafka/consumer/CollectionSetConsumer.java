@@ -42,6 +42,12 @@ public class CollectionSetConsumer {
                 cmd.getOptionValue("threads", "1")
         );
 
+        String format = cmd.getOptionValue("format", "protobuf").toLowerCase();
+        if (!format.equals("protobuf") && !format.equals("json") && !format.equals("raw")) {
+            System.err.println("Invalid --format value '" + format + "'. Must be 'protobuf', 'json', or 'raw'.");
+            System.exit(1);
+        }
+
         JmxReporter.forRegistry(metrics)
                 .inDomain("com.example.collectionset.consumer")
                 .build()
@@ -50,7 +56,7 @@ public class CollectionSetConsumer {
         ExecutorService executor =
                 Executors.newFixedThreadPool(threads);
 
-        System.out.println("Starting " + threads + " consumer threads");
+        System.out.println("Starting " + threads + " consumer thread(s) with format: " + format);
 
         for (int i = 0; i < threads; i++) {
             // Each consumer needs its own Properties instance
@@ -60,7 +66,8 @@ public class CollectionSetConsumer {
             executor.submit(
                     new ConsumerWorker(
                             consumerProps,
-                            cmd.getOptionValue("topic")
+                            cmd.getOptionValue("topic"),
+                            format
                     )
             );
         }
