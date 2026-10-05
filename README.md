@@ -29,6 +29,16 @@ usage: collectionset-kafka-consumer [--bootstrap-servers <arg>] --config
 You can tailor the number of consumer threads to your environment using the `--threads` option.
 Specify the topic from which to consumer using the `--topic` option.
 
+### Consumer groups and standalone mode
+
+When `group.id` is set (in the properties file or via `--group-id`), the consumer subscribes to the topic and lets the broker's group coordinator assign partitions and track committed offsets. This is the normal mode of operation.
+
+If no `group.id` is configured at all, the consumer runs in **standalone mode**: it looks up the topic's partitions itself, divides them round-robin across the consumer threads, and uses manual assignment instead of a subscription. This is useful on clusters where ACLs prevent you from creating a consumer group. In standalone mode:
+
+ * No offsets are committed, so each start positions itself according to `auto.offset.reset` (`latest` by default, use `earliest` to read from the beginning).
+ * `enable.auto.commit` is forced to `false`; the client refuses to start otherwise.
+ * You only need `Describe` and `Read` permission on the topic, and no permission on any consumer group.
+
 When a message is received, the CollectionSet is parsed according to [the CollectionSet proto](https://github.com/OpenNMS/opennms/blob/develop/features/kafka/producer/src/main/proto/collectionset.proto) and printed to the console:
 ```shell
 ==== CollectionSet @ 1767411471704

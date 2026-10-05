@@ -56,7 +56,19 @@ public class CollectionSetConsumer {
         ExecutorService executor =
                 Executors.newFixedThreadPool(threads);
 
+        if (ConsumerWorker.isStandalone(props)) {
+            // Without a group.id the client refuses an explicit enable.auto.commit=true,
+            // and offsets cannot be committed anyway, so force it off.
+            props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+            System.out.println("No group.id configured: running standalone with manual partition "
+                    + "assignment. Offsets will not be committed.");
+        }
+
         System.out.println("Starting " + threads + " consumer thread(s) with format: " + format);
+        System.out.printf(" bootstrap.servers=%s%n group.id=%s%n topic=%s%n",
+                props.getProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG),
+                props.getProperty(ConsumerConfig.GROUP_ID_CONFIG),
+                cmd.getOptionValue("topic"));
 
         for (int i = 0; i < threads; i++) {
             // Each consumer needs its own Properties instance
@@ -67,7 +79,9 @@ public class CollectionSetConsumer {
                     new ConsumerWorker(
                             consumerProps,
                             cmd.getOptionValue("topic"),
-                            format
+                            format,
+                            i,
+                            threads
                     )
             );
         }

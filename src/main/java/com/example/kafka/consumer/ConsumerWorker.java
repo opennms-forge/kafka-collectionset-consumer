@@ -2,13 +2,18 @@ package com.example.kafka.consumer;
 
 import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.util.JsonFormat;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.common.PartitionInfo;
+import org.apache.kafka.common.TopicPartition;
 import org.opennms.features.kafka.producer.model.CollectionSetProtos;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Properties;
 
 public class ConsumerWorker implements Runnable {
@@ -16,19 +21,48 @@ public class ConsumerWorker implements Runnable {
     private final Properties consumerProps;
     private final String topic;
     private final String format;
+    private final int workerIndex;
+    private final int workerCount;
 
-    public ConsumerWorker(Properties consumerProps, String topic, String format) {
+    public ConsumerWorker(Properties consumerProps, String topic, String format,
+                          int workerIndex, int workerCount) {
         this.consumerProps = consumerProps;
         this.topic = topic;
         this.format = format;
+        this.workerIndex = workerIndex;
+        this.workerCount = workerCount;
+    }
+
+    /** True when no group.id is configured, so group management is unavailable. */
+    public static boolean isStandalone(Properties props) {
+        String groupId = props.getProperty(ConsumerConfig.GROUP_ID_CONFIG);
+        return groupId == null || groupId.isBlank();
     }
 
     @Override
     public void run() {
+        try {
+            consume();
+        } catch (Throwable t) {
+            // Without this, an exception thrown here is captured by the
+            // executor's Future and never seen; the thread goes idle and
+            // the JVM sits doing nothing.
+            System.err.println("Consumer thread " + Thread.currentThread().getName()
+                    + " failed, exiting: " + t);
+            t.printStackTrace();
+            System.exit(1);
+        }
+    }
+
+    private void consume() {
         try (KafkaConsumer<byte[], byte[]> consumer =
                      new KafkaConsumer<>(consumerProps)) {
 
-            consumer.subscribe(Collections.singletonList(topic));
+            if (isStandalone(consumerProps)) {
+                assignStandalone(consumer);
+            } else {
+                consumer.subscribe(Collections.singletonList(topic));
+            }
 
             while (!Thread.currentThread().isInterrupted()) {
                 ConsumerRecords<byte[], byte[]> records =
@@ -59,6 +93,30 @@ public class ConsumerWorker implements Runnable {
                 });
             }
         }
+    }
+
+    /**
+     * Standalone mode: without a group.id the broker will not do partition
+     * assignment or offset commits for us, so look up the topic's partitions
+     * and assign a slice of them to this worker directly. Nothing is committed,
+     * so every start positions itself per auto.offset.reset.
+     */
+    private void assignStandalone(KafkaConsumer<byte[], byte[]> consumer) {
+        List<PartitionInfo> partitions = consumer.partitionsFor(topic);
+        if (partitions == null || partitions.isEmpty()) {
+            throw new IllegalStateException("Topic '" + topic
+                    + "' has no partitions visible to this client (does it exist, and do we have Describe on it?)");
+        }
+        List<TopicPartition> mine = new ArrayList<>();
+        for (PartitionInfo p : partitions) {
+            if (p.partition() % workerCount == workerIndex) {
+                mine.add(new TopicPartition(topic, p.partition()));
+            }
+        }
+        System.out.println("Standalone mode (no group.id): " + Thread.currentThread().getName()
+                + " assigned " + mine.size() + " of " + partitions.size()
+                + " partition(s) of '" + topic + "': " + mine);
+        consumer.assign(mine);
     }
 
     private void processRaw(String topic, int partition, long offset, byte[] key, byte[] value) {
