@@ -6,6 +6,7 @@ import com.codahale.metrics.Timer;
 import com.codahale.metrics.jmx.JmxReporter;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 
+import java.io.PrintStream;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,6 +49,11 @@ public class CollectionSetConsumer {
             System.exit(1);
         }
 
+        // --raw dumps payload bytes verbatim to stdout, so keep our own chatter
+        // on stderr in that mode to leave stdout clean for redirection.
+        boolean raw = cmd.hasOption("raw");
+        PrintStream info = raw ? System.err : System.out;
+
         JmxReporter.forRegistry(metrics)
                 .inDomain("com.example.collectionset.consumer")
                 .build()
@@ -60,12 +66,17 @@ public class CollectionSetConsumer {
             // Without a group.id the client refuses an explicit enable.auto.commit=true,
             // and offsets cannot be committed anyway, so force it off.
             props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-            System.out.println("No group.id configured: running standalone with manual partition "
+            info.println("No group.id configured: running standalone with manual partition "
                     + "assignment. Offsets will not be committed.");
         }
 
-        System.out.println("Starting " + threads + " consumer thread(s) with format: " + format);
-        System.out.printf(" bootstrap.servers=%s%n group.id=%s%n topic=%s%n",
+        if (raw) {
+            info.println("Starting " + threads + " consumer thread(s) in raw mode: "
+                    + "payloads will be written to stdout unmodified");
+        } else {
+            info.println("Starting " + threads + " consumer thread(s) with format: " + format);
+        }
+        info.printf(" bootstrap.servers=%s%n group.id=%s%n topic=%s%n",
                 props.getProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG),
                 props.getProperty(ConsumerConfig.GROUP_ID_CONFIG),
                 cmd.getOptionValue("topic"));
@@ -80,6 +91,7 @@ public class CollectionSetConsumer {
                             consumerProps,
                             cmd.getOptionValue("topic"),
                             format,
+                            raw,
                             i,
                             threads
                     )
@@ -88,7 +100,8 @@ public class CollectionSetConsumer {
 
         // --- Graceful shutdown hook ---
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("Shutdown requested");
+            info.println("Shutdown requested");
+            System.out.flush();
             executor.shutdownNow();
         }));
     }

@@ -43,6 +43,11 @@ public class CliOptions {
                         .build()
         );
 
+        options.addOption(null, "raw", false,
+                "Write each message payload to stdout exactly as received, with no "
+                + "parsing, decoding, or framing. Overrides --format. Diagnostic output "
+                + "goes to stderr so stdout can be redirected to a file.");
+
 
         options.addOption(null, "help", false,
                 "Print this help");

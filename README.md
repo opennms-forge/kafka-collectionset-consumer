@@ -17,17 +17,45 @@ Some properties can be overridden on the command-line:
 ```shell
 $ java -jar ./collectionset-kafka-consumer-1.0.0-SNAPSHOT.jar --help
 usage: collectionset-kafka-consumer [--bootstrap-servers <arg>] --config
-       <arg> [--group-id <arg>] [--help] [--threads <n>] --topic <arg>
+       <arg> [--format <fmt>] [--group-id <arg>] [--help] [--raw]
+       [--threads <n>] --topic <arg>
     --bootstrap-servers <arg>   Override Kafka bootstrap.servers
     --config <arg>              Path to Kafka consumer properties file
+    --format <fmt>              Message format: protobuf, json, or raw
+                                (default: protobuf)
     --group-id <arg>            Override Kafka consumer group.id
     --help                      Print this help
+    --raw                       Write each message payload to stdout
+                                exactly as received, with no parsing,
+                                decoding, or framing. Overrides --format.
+                                Diagnostic output goes to stderr so stdout
+                                can be redirected to a file.
     --threads <n>               Number of consumer threads (default: 1)
     --topic <arg>               Kafka topic to consume
 ```
 
 You can tailor the number of consumer threads to your environment using the `--threads` option.
 Specify the topic from which to consumer using the `--topic` option.
+
+### Payload formats
+
+The `--format` option selects how each message payload is interpreted:
+
+ * `protobuf` (default): parse the payload as a binary `CollectionSet` protobuf message and pretty-print it.
+ * `json`: parse the payload as the JSON encoding of a `CollectionSet` and pretty-print it.
+ * `raw`: do not parse the payload; print a header with topic, partition, offset and size, then the payload as a UTF-8 string and as a hex dump. Useful for figuring out what a producer is actually sending.
+
+### Raw passthrough
+
+The `--raw` flag bypasses all of the above and writes each payload to stdout byte-for-byte as it came off the wire: no parsing, no decoding, no headers, and no separator between messages. All of the consumer's own status output, and the Kafka client's logging, goes to stderr, so stdout can be redirected to a file or piped into another tool:
+
+```shell
+$ java -jar ./collectionset-kafka-consumer.jar --config /tmp/consumer.properties --topic metrics --raw > payloads.bin
+$ java -jar ./collectionset-kafka-consumer.jar --config /tmp/consumer.properties --topic metrics --raw 2>/dev/null \
+    | protoc --decode=CollectionSet collectionset.proto
+```
+
+Because no separator is written, concatenating multiple binary protobuf messages into one file makes them inseparable; capture a single message (or use `--format raw` to see message boundaries) if you need to decode individual payloads afterwards. If stdout is closed, for example because the far end of a pipe exits, the consumer stops.
 
 ### Consumer groups and standalone mode
 

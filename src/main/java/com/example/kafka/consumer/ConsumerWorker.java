@@ -21,14 +21,19 @@ public class ConsumerWorker implements Runnable {
     private final Properties consumerProps;
     private final String topic;
     private final String format;
+    private final boolean raw;
     private final int workerIndex;
     private final int workerCount;
 
+    /** Serialises raw writes so payloads from different worker threads never interleave. */
+    private static final Object RAW_OUT_LOCK = new Object();
+
     public ConsumerWorker(Properties consumerProps, String topic, String format,
-                          int workerIndex, int workerCount) {
+                          boolean raw, int workerIndex, int workerCount) {
         this.consumerProps = consumerProps;
         this.topic = topic;
         this.format = format;
+        this.raw = raw;
         this.workerIndex = workerIndex;
         this.workerCount = workerCount;
     }
@@ -70,6 +75,11 @@ public class ConsumerWorker implements Runnable {
 
                 records.forEach(record -> {
                     if (record.value() == null) return;
+
+                    if (raw) {
+                        writeRaw(record.value());
+                        return;
+                    }
 
                     if ("raw".equals(format)) {
                         processRaw(record.topic(), record.partition(), record.offset(),
@@ -113,10 +123,27 @@ public class ConsumerWorker implements Runnable {
                 mine.add(new TopicPartition(topic, p.partition()));
             }
         }
-        System.out.println("Standalone mode (no group.id): " + Thread.currentThread().getName()
+        (raw ? System.err : System.out).println("Standalone mode (no group.id): " + Thread.currentThread().getName()
                 + " assigned " + mine.size() + " of " + partitions.size()
                 + " partition(s) of '" + topic + "': " + mine);
         consumer.assign(mine);
+    }
+
+    /**
+     * --raw mode: write the payload bytes to stdout exactly as they came off
+     * the wire. No parsing, no decoding, no headers, and no separator between
+     * messages, so the output is byte-for-byte what the producer sent.
+     */
+    private void writeRaw(byte[] value) {
+        synchronized (RAW_OUT_LOCK) {
+            System.out.writeBytes(value);
+            System.out.flush();
+            // PrintStream swallows IO errors; surface a closed or broken stdout
+            // (e.g. the far end of a pipe went away) instead of spinning forever.
+            if (System.out.checkError()) {
+                throw new IllegalStateException("stdout is closed or failed, stopping raw output");
+            }
+        }
     }
 
     private void processRaw(String topic, int partition, long offset, byte[] key, byte[] value) {
